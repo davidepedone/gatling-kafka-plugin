@@ -28,13 +28,13 @@ trait KafkaCheckSupport {
   def avroBody[T <: GenericRecord: Serde]: CheckBuilder.Find[KafkaMessageCheckType, KafkaProtocolMessage, T] =
     AvroBodyCheckBuilder._avroBody
 
-  def simpleCheck(f: KafkaProtocolMessage => Boolean): KafkaCheck =
+  def simpleCheck(f: KafkaProtocolMessage => Boolean, errorMessage: String): KafkaCheck =
     Check.Simple(
       (response: KafkaProtocolMessage, _: Session, _: PreparedCache) =>
         if (f(response)) {
           CheckResult.NoopCheckResultSuccess
         } else {
-          "Kafka record check failed".failure
+          Option(errorMessage).getOrElse("Kafka record check failed").failure
         },
       None,
     )

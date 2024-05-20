@@ -35,6 +35,9 @@ case class KafkaProtocolBuilderNew(
   def matchByMessage(keyExtractor: KafkaProtocolMessage => Array[Byte]): KafkaProtocolBuilderNew =
     messageMatcher(KafkaMessageMatcher(keyExtractor))
 
+  def matchByKafkaMatcher(kafkaMatcher: KafkaMatcher): KafkaProtocolBuilderNew =
+    messageMatcher(kafkaMatcher)
+
   private def messageMatcher(matcher: KafkaMatcher): KafkaProtocolBuilderNew =
     copy(messageMatcher = matcher)
 
