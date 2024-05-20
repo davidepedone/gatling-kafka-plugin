@@ -10,6 +10,7 @@ case class KafkaProtocolMessage(
     outputTopic: String,
     headers: Option[Headers] = None,
     responseCode: Option[String] = None,
+    var timestamp: Long = 0
 ) {
   def toProducerRecord: ProducerRecord[Array[Byte], Array[Byte]] = {
     headers.fold(new ProducerRecord(inputTopic, key, value))(hs => new ProducerRecord(inputTopic, null, key, value, hs))

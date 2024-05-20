@@ -3,6 +3,7 @@ package ru.tinkoff.gatling.kafka.actions
 import io.gatling.commons.stats.KO
 import io.gatling.commons.util.Clock
 import io.gatling.commons.validation._
+import io.gatling.core.Predef.pause
 import io.gatling.core.action.{Action, RequestAction}
 import io.gatling.core.controller.throttle.Throttler
 import io.gatling.core.session.el._
@@ -14,7 +15,10 @@ import ru.tinkoff.gatling.kafka.KafkaLogging
 import ru.tinkoff.gatling.kafka.protocol.KafkaComponents
 import ru.tinkoff.gatling.kafka.request.KafkaProtocolMessage
 import ru.tinkoff.gatling.kafka.request.builder.KafkaRequestReplyAttributes
+import ru.tinkoff.gatling.kafka.streaming.KafkaStreamStateListener
 
+import java.util.concurrent.TimeUnit
+import scala.concurrent.duration.Duration
 import scala.reflect.{ClassTag, classTag}
 
 class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
@@ -55,6 +59,8 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
         key   <- keyE(s)
       } yield serializer.serialize(topic, key)
 
+  private val kafkaStreamStateListener = new KafkaStreamStateListener
+
   private def optToVal[T](ovt: Option[Validation[T]]): Validation[Option[T]] =
     ovt.fold(Option.empty[T].success)(_.map(Option[T]))
 
@@ -81,18 +87,28 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
       } yield KafkaProtocolMessage(key, value, inputTopic, outputTopic, headers)
 
   private def publishAndLogMessage(requestNameString: String, msg: KafkaProtocolMessage, session: Session): Unit = {
+    components.trackersPool.tracker(
+      msg.inputTopic, msg.outputTopic, components.kafkaProtocol.messageMatcher, None, kafkaStreamStateListener
+    )
+
+    do {
+      logger.trace(s"Waiting for stream to be ready, current status: ${kafkaStreamStateListener.getStatus}")
+      pause(Duration(300, TimeUnit.SECONDS))
+    } while (!kafkaStreamStateListener.isRunning)
+
     val now = clock.nowMillis
     components.sender.send(msg)(
       rm => {
         if (logger.underlying.isDebugEnabled) {
           logMessage(s"Record sent user=${session.userId} key=${new String(msg.key)} topic=${rm.topic()}", msg)
         }
+        msg.timestamp = rm.timestamp()
         val id = components.kafkaProtocol.messageMatcher.requestMatch(msg)
         components.trackersPool
-          .tracker(msg.inputTopic, msg.outputTopic, components.kafkaProtocol.messageMatcher, None)
+          .getTracker(msg.outputTopic)
           .track(
             id,
-            clock.nowMillis,
+            rm.timestamp(),
             components.kafkaProtocol.timeout.toMillis,
             attributes.checks,
             session,

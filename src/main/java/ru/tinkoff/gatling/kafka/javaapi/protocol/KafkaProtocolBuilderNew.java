@@ -2,6 +2,7 @@ package ru.tinkoff.gatling.kafka.javaapi.protocol;
 
 import io.gatling.core.protocol.Protocol;
 import io.gatling.javaapi.core.ProtocolBuilder;
+import ru.tinkoff.gatling.kafka.protocol.KafkaProtocol;
 import ru.tinkoff.gatling.kafka.request.KafkaProtocolMessage;
 import scala.Function1;
 
@@ -20,6 +21,11 @@ public class KafkaProtocolBuilderNew implements ProtocolBuilder {
 
     public KafkaProtocolBuilderNew matchByMessage(Function1<KafkaProtocolMessage, byte[]> keyExtractor) {
         this.wrapped = wrapped.matchByMessage(keyExtractor);
+        return this;
+    }
+
+    public KafkaProtocolBuilderNew matchByKafkaMatcher(KafkaProtocol.KafkaMatcher kafkaMatcher) {
+        this.wrapped = wrapped.matchByKafkaMatcher(kafkaMatcher);
         return this;
     }
 

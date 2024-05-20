@@ -12,6 +12,7 @@ import ru.tinkoff.gatling.kafka.KafkaLogging
 import ru.tinkoff.gatling.kafka.client.KafkaMessageTrackerActor.MessageConsumed
 import ru.tinkoff.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher
 import ru.tinkoff.gatling.kafka.request.KafkaProtocolMessage
+import ru.tinkoff.gatling.kafka.streaming.{CustomProcessor, KafkaStreamStateListener}
 
 import java.util.concurrent.ConcurrentHashMap
 import scala.jdk.CollectionConverters._
@@ -27,11 +28,13 @@ class TrackersPool(
   private val props    = new java.util.Properties()
   props.putAll(streamsSettings.asJava)
 
+  def getTracker(topic: String): KafkaMessageTracker = trackers.get(topic)
   def tracker(
       inputTopic: String,
       outputTopic: String,
       messageMatcher: KafkaMatcher,
       responseTransformer: Option[KafkaProtocolMessage => KafkaProtocolMessage],
+      streamStateListener: KafkaStreamStateListener,
   ): KafkaMessageTracker =
     trackers.computeIfAbsent(
       outputTopic,
@@ -40,39 +43,17 @@ class TrackersPool(
           system.actorOf(KafkaMessageTrackerActor.props(statsEngine, clock), genName("kafkaTrackerActor"))
 
         val builder = new StreamsBuilder
+        logger.info(s"Building KafkaStream on topic $outputTopic")
 
-        builder.stream[Array[Byte], Array[Byte]](outputTopic).foreach { case (k, v) =>
-          val message = KafkaProtocolMessage(k, v, inputTopic, outputTopic)
-          if (messageMatcher.responseMatch(message) == null) {
-            logger.error(s"no messageMatcher key for read message")
-          } else {
-            if (k == null || v == null)
-              logger.info(s" --- received message with null key or value")
-            else
-              logger.info(s" --- received  ${new String(k)} ${new String(v)}")
-            val receivedTimestamp = clock.nowMillis
-            val replyId           = messageMatcher.responseMatch(message)
-            if (k != null)
-              logMessage(
-                s"Record received key=${new String(k)}",
-                message,
-              )
-            else
-              logMessage(
-                s"Record received key=null",
-                message,
-              )
-
-            actor ! MessageConsumed(
-              replyId,
-              receivedTimestamp,
-              responseTransformer.map(_(message)).getOrElse(message),
-            )
-          }
-        }
-
+        builder
+          .stream[Array[Byte], Array[Byte]](outputTopic)
+          .process(
+            CustomProcessor
+              .supplier[Array[Byte], Array[Byte]](inputTopic, outputTopic, actor, messageMatcher, responseTransformer),
+          )
         val streams = new KafkaStreams(builder.build(), props)
 
+        streams.setStateListener(streamStateListener)
         streams.cleanUp()
         streams.start()
 

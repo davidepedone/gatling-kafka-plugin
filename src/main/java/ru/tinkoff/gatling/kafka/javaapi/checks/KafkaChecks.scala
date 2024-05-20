@@ -67,6 +67,7 @@ object KafkaChecks {
               .build(
                 KafkaCheckMaterializer.kafkaStatusCheck,
               )
+          case KafkaCheckType.Simple => scalaCheck.build(null).asInstanceOf[KafkaCheck]
           case unknown                     => throw new IllegalArgumentException(s"Kafka DSL doesn't support $unknown")
         }
     }
